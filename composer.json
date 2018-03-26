@@ -1,6 +1,5 @@
 {
-    "name": "acdh-oeaw/easyrdf",
-    "version": "0.13.1",
+    "name": "bookeen/easyrdf",
     "description": "ACDH fork of the EasyRdf library",
     "type": "library",
     "keywords": ["RDF", "Semantic Web", "Linked Data", "Turtle", "RDFa", "SPARQL"],
