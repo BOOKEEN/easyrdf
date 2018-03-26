@@ -245,7 +245,7 @@ class Client
      * @param string|null $graphUri
      * @return Http\Response
      */
-    protected function updateData($operation, $data, $graphUri = null, $contentType = null)
+    protected function updateData($operation, $data, $graphUri = null)
     {
         $query = "$operation DATA {";
         if ($graphUri) {
@@ -278,10 +278,10 @@ class Client
      *
      * @ignore
      */
-    protected function request($type, $query, $contentType)
+    protected function request($type, $query)
     {
         $processed_query = $this->preprocessQuery($query);
-        $response = $this->executeQuery($processed_query, $type, $contentType);
+        $response = $this->executeQuery($processed_query, $type);
 
         if (!$response->isSuccessful()) {
             throw new Http\Exception("HTTP request for SPARQL query failed", 0, null, $response->getBody());
