@@ -51,6 +51,10 @@ use EasyRdf\Utils;
  */
 class Client
 {
+    /** application Content type */
+    const CTYPE_SPARQL_UPDATE = 'sparql-update';
+    const CTYPE_FORM_URLENCODED = 'x-www-form-urlencoded';
+
     /** The query/read address of the SPARQL Endpoint */
     private $queryUri = null;
 
@@ -190,21 +194,39 @@ class Client
         return $this->request('update', $query);
     }
 
-    public function insert($data, $graphUri = null)
+    /**
+     * Prepare update data, make the update and return HTTP response (@see update)
+     *
+     * @param $data data to update
+     * @param null $graphUri graph uri to use while updating data
+     * @param bool $oldSyntax true to use the old INSERT GRAPH syntax
+     *
+     * @return Http\Response
+     */
+    public function insert($data, $graphUri = null, $oldSyntax = false)
     {
-        #$this->updateData('INSET',
-        $query = 'INSERT DATA {';
+        $query = 'INSERT DATA ';
         if ($graphUri) {
-            $query .= "GRAPH <$graphUri> {";
+            $query .= $oldSyntax ? 'INTO <' . $graphUri . '> {' : '{ GRAPH <' . $graphUri . '> {';
+        } else {
+            $query .= '{';
         }
         $query .= $this->convertToTriples($data);
-        if ($graphUri) {
-            $query .= "}";
+        if ($graphUri && !$oldSyntax) {
+            $query .= '}';
         }
         $query .= '}';
         return $this->update($query);
     }
 
+    /**
+     * Unused ?
+     *
+     * @param $operation
+     * @param $data
+     * @param null $graphUri
+     * @return Http\Response
+     */
     protected function updateData($operation, $data, $graphUri = null)
     {
         $query = "$operation DATA {";
@@ -297,11 +319,13 @@ class Client
      *
      * @param string $processed_query
      * @param string $type            Should be either "query" or "update"
+     * @param string $contentType  content type for update queries only. Can be sparql-update or x-www-form-urlencoded
+     *               (@see https://www.w3.org/TR/2013/REC-sparql11-protocol-20130321/#update-operation)
      *
      * @return Http\Response|\Zend\Http\Response
      * @throws Exception
      */
-    protected function executeQuery($processed_query, $type)
+    protected function executeQuery($processed_query, $type, $contentType = self::CTYPE_SPARQL_UPDATE)
     {
         $client = Http::getDefaultHttpClient();
         $client->resetParameters();
@@ -318,10 +342,20 @@ class Client
             $accept = Format::getHttpAcceptHeader($sparql_results_types);
             $client->setHeaders('Accept', $accept);
 
+            if (!in_array($contentType, array(self::CTYPE_SPARQL_UPDATE, self::CTYPE_FORM_URLENCODED))) {
+                throw new Exception('SPARQL UPDATE content type not valid', 400);
+            }
+
+            if ($contentType === self::CTYPE_FORM_URLENCODED) {
+                $encodedQuery = 'query=' . urlencode($processed_query);
+                $client->setRawData($encodedQuery);
+            } else {
+                $client->setRawData($processed_query);
+            }
+
             $client->setMethod('POST');
             $client->setUri($this->updateUri);
-            $client->setRawData($processed_query);
-            $client->setHeaders('Content-Type', 'application/sparql-update');
+            $client->setHeaders('Content-Type', 'application/' . $contentType);
         } elseif ($type == 'query') {
             $re = '(?:(?:\s*BASE\s*<.*?>\s*)|(?:\s*PREFIX\s+.+:\s*<.*?>\s*))*'.
                 '(CONSTRUCT|SELECT|ASK|DESCRIBE)[\W]';
