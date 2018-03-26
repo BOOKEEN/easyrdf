@@ -63,6 +63,9 @@ class Client
     /** The update/write address of the SPARQL Endpoint */
     private $updateUri = null;
 
+    /** @var string */
+    private $updateApplicationContentType = self::CTYPE_SPARQL_UPDATE;
+
     /** Create a new SPARQL endpoint client
      *
      * If the query and update endpoints are the same, then you
@@ -86,6 +89,21 @@ class Client
         } else {
             $this->updateUri = $queryUri;
         }
+    }
+
+    /**
+     * @param string $contentType  content type for update queries only. Can be sparql-update or x-www-form-urlencoded
+     *               (@see https://www.w3.org/TR/2013/REC-sparql11-protocol-20130321/#update-operation)
+     *
+     * @throws Exception SPARQL UPDATE content type not valid
+     */
+    public function setUpdateApplicationContentType($contentType)
+    {
+        if (!in_array($contentType, array(self::CTYPE_SPARQL_UPDATE, self::CTYPE_FORM_URLENCODED))) {
+            throw new Exception('SPARQL UPDATE content type not valid', 400);
+        }
+
+        $this->updateApplicationContentType = $contentType;
     }
 
     /** Get the URI of the SPARQL query endpoint
@@ -227,7 +245,7 @@ class Client
      * @param string|null $graphUri
      * @return Http\Response
      */
-    protected function updateData($operation, $data, $graphUri = null)
+    protected function updateData($operation, $data, $graphUri = null, $contentType = null)
     {
         $query = "$operation DATA {";
         if ($graphUri) {
@@ -260,10 +278,10 @@ class Client
      *
      * @ignore
      */
-    protected function request($type, $query)
+    protected function request($type, $query, $contentType)
     {
         $processed_query = $this->preprocessQuery($query);
-        $response = $this->executeQuery($processed_query, $type);
+        $response = $this->executeQuery($processed_query, $type, $contentType);
 
         if (!$response->isSuccessful()) {
             throw new Http\Exception("HTTP request for SPARQL query failed", 0, null, $response->getBody());
@@ -319,13 +337,11 @@ class Client
      *
      * @param string $processed_query
      * @param string $type            Should be either "query" or "update"
-     * @param string $contentType  content type for update queries only. Can be sparql-update or x-www-form-urlencoded
-     *               (@see https://www.w3.org/TR/2013/REC-sparql11-protocol-20130321/#update-operation)
      *
      * @return Http\Response|\Zend\Http\Response
      * @throws Exception
      */
-    protected function executeQuery($processed_query, $type, $contentType = self::CTYPE_SPARQL_UPDATE)
+    protected function executeQuery($processed_query, $type)
     {
         $client = Http::getDefaultHttpClient();
         $client->resetParameters();
@@ -342,11 +358,7 @@ class Client
             $accept = Format::getHttpAcceptHeader($sparql_results_types);
             $client->setHeaders('Accept', $accept);
 
-            if (!in_array($contentType, array(self::CTYPE_SPARQL_UPDATE, self::CTYPE_FORM_URLENCODED))) {
-                throw new Exception('SPARQL UPDATE content type not valid', 400);
-            }
-
-            if ($contentType === self::CTYPE_FORM_URLENCODED) {
+            if ($this->updateApplicationContentType === self::CTYPE_FORM_URLENCODED) {
                 $encodedQuery = 'query=' . urlencode($processed_query);
                 $client->setRawData($encodedQuery);
             } else {
@@ -355,7 +367,7 @@ class Client
 
             $client->setMethod('POST');
             $client->setUri($this->updateUri);
-            $client->setHeaders('Content-Type', $contentType);
+            $client->setHeaders('Content-Type', $this->updateApplicationContentType);
         } elseif ($type == 'query') {
             $re = '(?:(?:\s*BASE\s*<.*?>\s*)|(?:\s*PREFIX\s+.+:\s*<.*?>\s*))*'.
                 '(CONSTRUCT|SELECT|ASK|DESCRIBE)[\W]';
