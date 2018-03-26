@@ -52,8 +52,8 @@ use EasyRdf\Utils;
 class Client
 {
     /** application Content type */
-    const CTYPE_SPARQL_UPDATE = 'sparql-update';
-    const CTYPE_FORM_URLENCODED = 'x-www-form-urlencoded';
+    const CTYPE_SPARQL_UPDATE = 'application/sparql-update';
+    const CTYPE_FORM_URLENCODED = 'application/x-www-form-urlencoded';
 
     /** The query/read address of the SPARQL Endpoint */
     private $queryUri = null;
@@ -197,8 +197,8 @@ class Client
     /**
      * Prepare update data, make the update and return HTTP response (@see update)
      *
-     * @param $data data to update
-     * @param null $graphUri graph uri to use while updating data
+     * @param string|Graph $data data to update. Can be either a string or a Graph
+     * @param string|null $graphUri graph uri to use while updating data
      * @param bool $oldSyntax true to use the old INSERT GRAPH syntax
      *
      * @return Http\Response
@@ -222,9 +222,9 @@ class Client
     /**
      * Unused ?
      *
-     * @param $operation
-     * @param $data
-     * @param null $graphUri
+     * @param string $operation
+     * @param string|Graph $data data to update. Can be either a string or a Graph
+     * @param string|null $graphUri
      * @return Http\Response
      */
     protected function updateData($operation, $data, $graphUri = null)
@@ -355,7 +355,7 @@ class Client
 
             $client->setMethod('POST');
             $client->setUri($this->updateUri);
-            $client->setHeaders('Content-Type', 'application/' . $contentType);
+            $client->setHeaders('Content-Type', $contentType);
         } elseif ($type == 'query') {
             $re = '(?:(?:\s*BASE\s*<.*?>\s*)|(?:\s*PREFIX\s+.+:\s*<.*?>\s*))*'.
                 '(CONSTRUCT|SELECT|ASK|DESCRIBE)[\W]';
@@ -397,7 +397,7 @@ class Client
                 $client->setMethod('POST');
                 $client->setUri($this->queryUri);
                 $client->setRawData($encodedQuery);
-                $client->setHeaders('Content-Type', 'application/x-www-form-urlencoded');
+                $client->setHeaders('Content-Type', self::CTYPE_FORM_URLENCODED);
             }
         } else {
             throw new Exception('unexpected request-type: '.$type);
