@@ -55,6 +55,10 @@ class Client
     const CTYPE_SPARQL_UPDATE = 'application/sparql-update';
     const CTYPE_FORM_URLENCODED = 'application/x-www-form-urlencoded';
 
+    const GRAPH_DEFAULT = 'DEFAULT';
+    const GRAPH_NAMED = 'NAMED';
+    const GRAPH_ALL = 'ALL';
+
     /** The query/read address of the SPARQL Endpoint */
     private $queryUri = null;
 
@@ -259,18 +263,90 @@ class Client
         return $this->update($query);
     }
 
+    /**
+     * The DROP operation removes the specified graph(s) from the Graph Store
+     * @see https://www.w3.org/TR/sparql11-update/#drop
+     *
+     * @param string $graphUri IRIref | DEFAULT | NAMES | ALL
+     * @param bool $silent the result of the operation will always be success
+     *
+     * @return Http\Response
+     */
+    public function drop($graphUri, $silent = false)
+    {
+        $query = $silent ? 'DROP SILENT ' : 'DROP ';
+
+        $query = $this->graphManagementOperation(
+            $query,
+            $graphUri,
+            array(self::GRAPH_DEFAULT, self::GRAPH_NAMED, self::GRAPH_ALL)
+        );
+
+        return $this->update($query);
+    }
+
+    /**
+     * The CLEAR operation removes all the triples in the specified graph(s) in the Graph Store.
+     * @see https://www.w3.org/TR/sparql11-update/#clear
+     *
+     * @param string $graphUri IRIref | DEFAULT | NAMES | ALL
+     * @param bool $silent the result of the operation will always be success
+     *
+     * @return Http\Response
+     */
     public function clear($graphUri, $silent = false)
     {
-        $query = "CLEAR";
-        if ($silent) {
-            $query .= " SILENT";
-        }
-        if (preg_match('/^all|named|default$/i', $graphUri)) {
-            $query .= " $graphUri";
-        } else {
-            $query .= " GRAPH <$graphUri>";
-        }
+        $query = $silent ? 'CLEAR SILENT ' : 'CLEAR ';
+
+        $query = $this->graphManagementOperation(
+            $query,
+            $graphUri,
+            array(self::GRAPH_DEFAULT, self::GRAPH_NAMED, self::GRAPH_ALL)
+        );
+
         return $this->update($query);
+    }
+
+    /**
+     * The COPY operation is a shortcut for inserting all data from an input graph into a destination graph.
+     * @see https://www.w3.org/TR/sparql11-update/#copy
+     *
+     * @param string $graphUriFrom IRIref | DEFAULT
+     * @param string $graphUriTo IRIref | DEFAULT
+     * @param bool $silent the result of the operation will always be success
+     *
+     * @return Http\Response
+     */
+    public function copy($graphUriFrom, $graphUriTo, $silent = false)
+    {
+        $query = $silent ? 'COPY SILENT ' : 'COPY ';
+
+        $query = $this->graphManagementOperation($query, $graphUriFrom, array(self::GRAPH_DEFAULT));
+
+        $query .= ' TO';
+
+        $query = $this->graphManagementOperation($query, $graphUriTo, array(self::GRAPH_DEFAULT));
+
+        return $this->update($query);
+    }
+
+    /**
+     * @param string $query initial query
+     * @param string $graphUri graph(s) to update
+     * @param string[] $graphList List of supported graph operation(s) (see GRAPH_* const)
+     *
+     * @return string updated query
+     */
+    protected function graphManagementOperation($query, $graphUri, array $graphList)
+    {
+        $graphMatch = implode('|', $graphList);
+        if (preg_match('/^' . $graphMatch . '$/i', $graphUri)) {
+            $query .= $graphUri;
+        } else {
+            $query .= 'GRAPH <' . $graphUri . '>';
+        }
+
+        return $query;
     }
 
     /*
