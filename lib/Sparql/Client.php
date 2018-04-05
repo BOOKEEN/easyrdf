@@ -55,10 +55,6 @@ class Client
     const CTYPE_SPARQL_UPDATE = 'application/sparql-update';
     const CTYPE_FORM_URLENCODED = 'application/x-www-form-urlencoded';
 
-    const GRAPH_DEFAULT = 'DEFAULT';
-    const GRAPH_NAMED = 'NAMED';
-    const GRAPH_ALL = 'ALL';
-
     /** The query/read address of the SPARQL Endpoint */
     private $queryUri = null;
 
@@ -272,15 +268,25 @@ class Client
      *
      * @return Http\Response
      */
+    public function create($graphUri, $silent = false)
+    {
+        $query = $this->graphManagement(Graph::OPERATION_CREATE, $silent, $graphUri);
+
+        return $this->update($query);
+    }
+
+    /**
+     * The DROP operation removes the specified graph(s) from the Graph Store
+     * @see https://www.w3.org/TR/sparql11-update/#drop
+     *
+     * @param string $graphUri IRIref | DEFAULT | NAMES | ALL
+     * @param bool $silent the result of the operation will always be success
+     *
+     * @return Http\Response
+     */
     public function drop($graphUri, $silent = false)
     {
-        $query = $silent ? 'DROP SILENT ' : 'DROP ';
-
-        $query = $this->graphManagementOperation(
-            $query,
-            $graphUri,
-            array(self::GRAPH_DEFAULT, self::GRAPH_NAMED, self::GRAPH_ALL)
-        );
+        $query = $this->graphManagement(Graph::OPERATION_DROP, $silent, $graphUri);
 
         return $this->update($query);
     }
@@ -296,13 +302,14 @@ class Client
      */
     public function clear($graphUri, $silent = false)
     {
-        $query = $silent ? 'CLEAR SILENT ' : 'CLEAR ';
+        $query = $this->graphManagement(Graph::UPDATE_CLEAR, $silent, $graphUri);
 
-        $query = $this->graphManagementOperation(
-            $query,
-            $graphUri,
-            array(self::GRAPH_DEFAULT, self::GRAPH_NAMED, self::GRAPH_ALL)
-        );
+        return $this->update($query);
+    }
+
+    public function load($graphUriFrom, $graphUriTo, $silent = false)
+    {
+        $query = $this->graphManagement(Graph::UPDATE_LOAD, $silent, $graphUriFrom, $graphUriTo);
 
         return $this->update($query);
     }
@@ -319,25 +326,100 @@ class Client
      */
     public function copy($graphUriFrom, $graphUriTo, $silent = false)
     {
-        $query = $silent ? 'COPY SILENT ' : 'COPY ';
-
-        $query = $this->graphManagementOperation($query, $graphUriFrom, array(self::GRAPH_DEFAULT));
-
-        $query .= ' TO';
-
-        $query = $this->graphManagementOperation($query, $graphUriTo, array(self::GRAPH_DEFAULT));
+        $query = $this->graphManagement(Graph::OPERATION_COPY, $silent, $graphUriFrom, $graphUriTo);
 
         return $this->update($query);
     }
 
     /**
+     * The MOVE operation is a shortcut for moving all data from an input graph into a destination graph.
+     * @see https://www.w3.org/TR/sparql11-update/#move
+     *
+     * @param string $graphUriFrom IRIref | DEFAULT
+     * @param string $graphUriTo IRIref | DEFAULT
+     * @param bool $silent the result of the operation will always be success
+     *
+     * @return Http\Response
+     */
+    public function move($graphUriFrom, $graphUriTo, $silent = false)
+    {
+        $query = $this->graphManagement(Graph::OPERATION_MOVE, $silent, $graphUriFrom, $graphUriTo);
+
+        return $this->update($query);
+    }
+
+    /**
+     * The ADD operation is a shortcut for inserting all data from an input graph into a destination graph
+     * @see https://www.w3.org/TR/sparql11-update/#add
+     *
+     * @param string $graphUriFrom IRIref | DEFAULT
+     * @param string $graphUriTo IRIref | DEFAULT
+     * @param bool $silent the result of the operation will always be success
+     *
+     * @return Http\Response
+     */
+    public function add($graphUriFrom, $graphUriTo, $silent = false)
+    {
+        $query = $this->graphManagement(Graph::OPERATION_ADD, $silent, $graphUriFrom, $graphUriTo);
+
+        return $this->update($query);
+    }
+
+    /**
+     * Return a SPARQL query for graph management operations
+     *
+     * @param string $operation
+     * @param bool $silent true to add SILENT statement
+     * @param string $graphUriFrom graph Uri
+     * @param string|null $graphUriTo graph Uri
+     *
+     * @return string SPARQL query
+     */
+    protected function graphManagement($operation, $silent, $graphUriFrom, $graphUriTo = null)
+    {
+        $query = $silent ? $operation . ' SILENT ' : $operation . ' ';
+
+        switch ($operation) {
+            case Graph::OPERATION_ADD:
+            case Graph::OPERATION_COPY:
+            case Graph::OPERATION_MOVE:
+                $this->addGraphRef($query, $graphUriFrom, array(Graph::KEYWORD_DEFAULT));
+                $query .= ' TO ';
+                $this->addGraphRef($query, $graphUriTo, array(Graph::KEYWORD_DEFAULT));
+                break;
+            case Graph::OPERATION_DROP:
+            case Graph::UPDATE_CLEAR:
+                $this->addGraphRef(
+                    $query,
+                    $graphUriFrom,
+                    array(Graph::KEYWORD_DEFAULT, Graph::KEYWORD_NAMED, Graph::KEYWORD_ALL)
+                );
+                break;
+            case Graph::OPERATION_CREATE:
+                $this->addGraphRef($query, $graphUriFrom, array());
+                break;
+            case Graph::UPDATE_LOAD:
+                $this->addGraphRef($query, $graphUriFrom, array());
+                $query .= ' INTO ';
+                $this->addGraphRef($query, $graphUriTo, array());
+                break;
+            default:
+                // do nothing
+                break;
+        }
+
+        return $query;
+    }
+
+    /**
+     * Update query with graph reference.
+     * It may be a graph uri or a keyword (see GRAPH_* const)
+     *
      * @param string $query initial query
      * @param string $graphUri graph(s) to update
      * @param string[] $graphList List of supported graph operation(s) (see GRAPH_* const)
-     *
-     * @return string updated query
      */
-    protected function graphManagementOperation($query, $graphUri, array $graphList)
+    protected function addGraphRef(&$query, $graphUri, array $graphList)
     {
         $graphMatch = implode('|', $graphList);
         if (preg_match('/^' . $graphMatch . '$/i', $graphUri)) {
@@ -345,8 +427,6 @@ class Client
         } else {
             $query .= 'GRAPH <' . $graphUri . '>';
         }
-
-        return $query;
     }
 
     /*
