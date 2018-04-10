@@ -39,6 +39,9 @@ use EasyRdf\Exception;
 use EasyRdf\Format;
 use EasyRdf\Graph;
 use EasyRdf\Http;
+use EasyRdf\Http\Client as HttpClient;
+use EasyRdf\Http\Exception as HttpException;
+use EasyRdf\Http\Response as HttpResponse;
 use EasyRdf\RdfNamespace;
 use EasyRdf\Utils;
 
@@ -58,13 +61,16 @@ class Client
     /** The query/read address of the SPARQL Endpoint */
     private $queryUri = null;
 
-    private $queryUri_has_params = false;
+    private $queryUriHasParam = false;
 
     /** The update/write address of the SPARQL Endpoint */
     private $updateUri = null;
 
     /** @var string */
     private $updateApplicationContentType = self::CTYPE_SPARQL_UPDATE;
+
+    /** @var array */
+    private $sparqlResultsTypes;
 
     /** Create a new SPARQL endpoint client
      *
@@ -79,9 +85,9 @@ class Client
         $this->queryUri = $queryUri;
 
         if (strlen(parse_url($queryUri, PHP_URL_QUERY)) > 0) {
-            $this->queryUri_has_params = true;
+            $this->queryUriHasParam = true;
         } else {
-            $this->queryUri_has_params = false;
+            $this->queryUriHasParam = false;
         }
 
         if ($updateUri) {
@@ -89,6 +95,13 @@ class Client
         } else {
             $this->updateUri = $queryUri;
         }
+
+        // Tell the server which response formats we can parse
+        // @see https://www.w3.org/TR/sparql11-protocol/#conneg
+        $this->sparqlResultsTypes = array(
+            'application/sparql-results+json' => 1.0,
+            'application/sparql-results+xml' => 0.8
+        );
     }
 
     /**
@@ -147,7 +160,7 @@ class Client
      */
     public function query($query)
     {
-        return $this->request('query', $query);
+        return $this->request($query);
     }
 
     /** Count the number of triples in a SPARQL 1.1 endpoint
@@ -209,7 +222,7 @@ class Client
      */
     public function update($query)
     {
-        return $this->request('update', $query);
+        return $this->request($query);
     }
 
     /**
@@ -229,12 +242,14 @@ class Client
         } else {
             $query .= '{';
         }
-        $query .= $this->convertToTriples($data);
+        $query .= $this->formatRDFPayload($data);
         if ($graphUri && !$oldSyntax) {
             $query .= '}';
         }
         $query .= '}';
-        return $this->update($query);
+        $updatedQuery = $this->addRdfNamespace($query);
+
+        return $this->request($updatedQuery);
     }
 
     /**
@@ -251,17 +266,20 @@ class Client
         if ($graphUri) {
             $query .= "GRAPH <$graphUri> {";
         }
-        $query .= $this->convertToTriples($data);
+        $query .= $this->formatRDFPayload($data);
         if ($graphUri) {
             $query .= "}";
         }
         $query .= '}';
-        return $this->update($query);
+
+        $updatedQuery = $this->addRdfNamespace($query);
+
+        return $this->request($updatedQuery);
     }
 
     /**
-     * The DROP operation removes the specified graph(s) from the Graph Store
-     * @see https://www.w3.org/TR/sparql11-update/#drop
+     * This operation creates a graph in the Graph Store
+     * @see https://www.w3.org/TR/2013/REC-sparql11-update-20130321/#create
      *
      * @param string $graphUri IRIref | DEFAULT | NAMES | ALL
      * @param bool $silent the result of the operation will always be success
@@ -272,7 +290,7 @@ class Client
     {
         $query = $this->graphManagement(Graph::OPERATION_CREATE, $silent, $graphUri);
 
-        return $this->update($query);
+        return $this->request($query);
     }
 
     /**
@@ -288,7 +306,7 @@ class Client
     {
         $query = $this->graphManagement(Graph::OPERATION_DROP, $silent, $graphUri);
 
-        return $this->update($query);
+        return $this->request($query);
     }
 
     /**
@@ -304,14 +322,14 @@ class Client
     {
         $query = $this->graphManagement(Graph::UPDATE_CLEAR, $silent, $graphUri);
 
-        return $this->update($query);
+        return $this->request($query);
     }
 
     public function load($graphUriFrom, $graphUriTo, $silent = false)
     {
         $query = $this->graphManagement(Graph::UPDATE_LOAD, $silent, $graphUriFrom, $graphUriTo);
 
-        return $this->update($query);
+        return $this->request($query);
     }
 
     /**
@@ -328,7 +346,7 @@ class Client
     {
         $query = $this->graphManagement(Graph::OPERATION_COPY, $silent, $graphUriFrom, $graphUriTo);
 
-        return $this->update($query);
+        return $this->request($query);
     }
 
     /**
@@ -345,7 +363,7 @@ class Client
     {
         $query = $this->graphManagement(Graph::OPERATION_MOVE, $silent, $graphUriFrom, $graphUriTo);
 
-        return $this->update($query);
+        return $this->request($query);
     }
 
     /**
@@ -362,7 +380,264 @@ class Client
     {
         $query = $this->graphManagement(Graph::OPERATION_ADD, $silent, $graphUriFrom, $graphUriTo);
 
-        return $this->update($query);
+        return $this->request($query);
+    }
+
+    /**
+     * Internal function to make an HTTP request to SPARQL endpoint
+     *
+     * @param string $query
+     * @return Graph|HttpResponse|Result
+     *
+     * @throws HttpException HTTP request for SPARQL query failed
+     */
+    protected function request($query)
+    {
+        $response = $this->executeQuery($query, $uri, $callable, $checkQueryForm);
+
+        if (!$response->isSuccessful()) {
+            throw new HttpException(
+                "HTTP request for SPARQL query failed",
+                $response->getStatus(),
+                null,
+                $response->getBody()
+            );
+        }
+
+        if ($response->getStatus() === 204) {
+            // No content
+            return $response;
+        }
+
+        return $this->parseResponseToQuery($response);
+    }
+
+    /**
+     * Format the rdf payload for SPARQL Update operations
+     *
+     * @param string|Graph $data
+     * @param string $format format to serialise data. List available : Format::getNames
+     *
+     * @return string The serialised graph
+     * @throws Exception Error while trying to serialise
+     * @throws Exception Data must be a string or a Graph
+     */
+    protected function formatRDFPayload($data, $format = 'ntriples')
+    {
+        if (is_string($data)) {
+
+            return $data;
+        } elseif (is_object($data) and $data instanceof Graph) {
+            try {
+
+                return $data->serialise($format);
+            } catch (\Exception $e) {
+                throw new Exception('Error while trying to serialise.', $e->getCode(), $e);
+            }
+        } else {
+            throw new Exception('Cannot serialise. Data must be a string or a Graph.');
+        }
+    }
+
+    /**
+     * Adds missing prefix-definitions to the query
+     *
+     * Overriding classes may execute arbitrary query-alteration here
+     *
+     * @param string $query
+     *
+     * @return string rdfDataset using Prefixes
+     */
+    protected function addRdfNamespace($query)
+    {
+        // Check for undefined prefixes
+        $prefixes = '';
+        foreach (RdfNamespace::namespaces() as $prefix => $uri) {
+            if (strpos($query, $prefix . ':') !== false &&
+                strpos($query, 'PREFIX ' . $prefix . ':') === false
+            ) {
+                $prefixes .= 'PREFIX ' . $prefix . ': <' . $uri .'>' . PHP_EOL;
+            }
+        }
+
+        return $prefixes . $query;
+    }
+
+    /**
+     * @param string $query query to execute
+     * @param string $uri The address of the SPARQL Query/Update Endpoint
+     * @param Callable $callable Client Protocol to use
+     * @param bool $checkQueryForm true to check query Form
+     *
+     * @return HttpResponse
+     * @throws Exception User function not valid
+     * @throws Exception Error while trying to call function
+     */
+    protected function executeQuery($query, $uri, $callable, $checkQueryForm)
+    {
+        $client = Http::getDefaultHttpClient();
+        $client->resetParameters();
+
+        if ($checkQueryForm) {
+            $queryForm = $this->getQueryForm($query);
+        } else {
+            $queryForm = null;
+        }
+        $acceptHeader = $this->getHttpAcceptHeader($queryForm);
+        $client->setHeaders('Accept', $acceptHeader);
+
+        if (is_callable($callable)) {
+            $client = call_user_func($callable, $query, $uri, $client);
+        } else {
+            throw new Exception('User function : ' . $callable . ' not valid.');
+        }
+
+        if (!$client) {
+            throw new Exception('Error while trying to call : ' . $callable);
+        }
+
+        return $client->request();
+    }
+
+    /**
+     * Prepare the client for a SPARQL GET Query
+     * @see https://www.w3.org/TR/sparql11-protocol/#query-via-get
+     *
+     * Fallback to SPARQL POST Url-Encoded Query if we cannot use GET
+     *
+     * @param string $query query to execute
+     * @param string $uri The address of the SPARQL Query Endpoint
+     * @param HttpClient $client
+     *
+     * @return HttpClient $client
+     */
+    protected function sparqlGet($query, $uri, HttpClient $client)
+    {
+        $encodedQuery = 'query=' . urlencode($query);
+
+        // 2046 = 2kB minus 1 for '?' and 1 for NULL-terminated string on server
+        if (strlen($encodedQuery) + strlen($uri) <= 2046) {
+            $delimiter = $this->queryUriHasParam ? '&' : '?';
+
+            $client->setMethod('GET');
+            $client->setUri($uri . $delimiter . $encodedQuery);
+
+            return $client;
+        } else {
+            // Fall back to POST instead (which is un-cacheable)
+            return $this->sparqlPostUrlEncoded($query, $uri, $client);
+        }
+    }
+
+    /**
+     * Prepare the client for a SPARQL POST Directly Query or Update
+     *
+     * @see https://www.w3.org/TR/sparql11-protocol/#query-via-post-direct
+     * @see https://www.w3.org/TR/sparql11-protocol/#update-via-post-direct
+     *
+     * @param string $query query to execute
+     * @param string $uri The address of the SPARQL Query/Update Endpoint
+     * @param HttpClient $client
+     *
+     * @return HttpClient $client
+     */
+    protected function sparqlPostDirectly($query, $uri, HttpClient $client)
+    {
+        $client->setMethod('POST');
+        $client->setUri($uri);
+        $client->setRawData($query);
+        $client->setHeaders('Content-Type', self::CTYPE_SPARQL_UPDATE);
+
+        return $client;
+    }
+
+    /**
+     * Prepare the client for a SPARQL POST Url-Encoded Query or Update
+     *
+     * @see https://www.w3.org/TR/sparql11-protocol/#query-via-post-urlencoded
+     * @see https://www.w3.org/TR/sparql11-protocol/#update-via-post-urlencoded
+     *
+     * @param string $query query to execute
+     * @param string $uri The address of the SPARQL Query/Update Endpoint
+     * @param HttpClient $client
+     *
+     * @return HttpClient $client
+     */
+    protected function sparqlPostUrlEncoded($query, $uri, HttpClient $client)
+    {
+        $encodedQuery = 'query=' . urlencode($query);
+
+        $client->setMethod('POST');
+        $client->setUri($uri);
+        $client->setRawData($encodedQuery);
+        $client->setHeaders('Content-Type', self::CTYPE_FORM_URLENCODED);
+
+        return $client;
+    }
+
+    /**
+     * Get http Accept header.
+     * @see https://www.w3.org/TR/2013/REC-sparql11-protocol-20130321/#conneg
+     *
+     *  - getHttpAcceptHeader : setup a list of default accept formats + extra formats if provided
+     *  - formatAcceptHeader : define accept format
+     *  - @see Format::getFormats() for a list of default formats.
+     *
+     * Success response format :
+     * @see https://www.w3.org/TR/2013/REC-sparql11-protocol-20130321/#query-success
+     * @see https://www.w3.org/TR/2013/REC-sparql11-protocol-20130321/#update-success
+     *
+     * @param string $queryForm
+     * @return string
+     */
+    protected function getHttpAcceptHeader($queryForm = null)
+    {
+        if (!$queryForm) {
+
+            return Format::getHttpAcceptHeader($this->sparqlResultsTypes);
+        }
+
+        switch ($queryForm) {
+            case 'SELECT':
+            case 'ASK':
+
+                return Format::formatAcceptHeader($this->sparqlResultsTypes);
+                break;
+            case 'CONSTRUCT':
+            case 'DESCRIBE':
+
+                return Format::getHttpAcceptHeader();
+                break;
+            default:
+
+                return Format::getHttpAcceptHeader($this->sparqlResultsTypes);
+                break;
+        }
+    }
+
+    /**
+     * Retrieve a string representing a query form
+     * @see https://www.w3.org/TR/sparql11-query/#QueryForms
+     *
+     * @param string $query query to execute
+     * @return string|null QueryForm, null if it's a non standard query
+     */
+    protected function getQueryForm($query)
+    {
+        // regex for query forms
+        $regex = '(?:(?:\s*BASE\s*<.*?>\s*)|(?:\s*PREFIX\s+.+:\s*<.*?>\s*))*'.
+            '(CONSTRUCT|SELECT|ASK|DESCRIBE)[\W]';
+
+        $result = null;
+        $matched = mb_eregi($regex, $query, $result);
+
+        if (false === $matched || count($result) !== 2) {
+            // non-standard query. is this something non-standard?
+            return 'UNKNOWN';
+        } else {
+
+            return strtoupper($result[1]);
+        }
     }
 
     /**
@@ -429,65 +704,6 @@ class Client
         }
     }
 
-    /*
-     * Internal function to make an HTTP request to SPARQL endpoint
-     *
-     * @ignore
-     */
-    protected function request($type, $query)
-    {
-        $processed_query = $this->preprocessQuery($query);
-        $response = $this->executeQuery($processed_query, $type);
-
-        if (!$response->isSuccessful()) {
-            throw new Http\Exception("HTTP request for SPARQL query failed", 0, null, $response->getBody());
-        }
-
-        if ($response->getStatus() == 204) {
-            // No content
-            return $response;
-        }
-
-        return $this->parseResponseToQuery($response);
-    }
-
-    protected function convertToTriples($data)
-    {
-        if (is_string($data)) {
-            return $data;
-        } elseif (is_object($data) and $data instanceof Graph) {
-            # FIXME: insert Turtle when there is a way of seperateing out the prefixes
-            return $data->serialise('ntriples');
-        } else {
-            throw new Exception(
-                "Don't know how to convert to triples for SPARQL query"
-            );
-        }
-    }
-
-    /**
-     * Adds missing prefix-definitions to the query
-     *
-     * Overriding classes may execute arbitrary query-alteration here
-     *
-     * @param string $query
-     * @return string
-     */
-    protected function preprocessQuery($query)
-    {
-        // Check for undefined prefixes
-        $prefixes = '';
-        foreach (RdfNamespace::namespaces() as $prefix => $uri) {
-            if (strpos($query, "{$prefix}:") !== false and
-                strpos($query, "PREFIX {$prefix}:") === false
-            ) {
-                $prefixes .= "PREFIX {$prefix}: <{$uri}>\n";
-            }
-        }
-
-        return $prefixes . $query;
-    }
-
     /**
      * Build http-client object, execute request and return a response
      *
@@ -497,7 +713,7 @@ class Client
      * @return Http\Response|\Zend\Http\Response
      * @throws Exception
      */
-    protected function executeQuery($processed_query, $type)
+    protected function executeQuery2($processed_query, $type)
     {
         $client = Http::getDefaultHttpClient();
         $client->resetParameters();
@@ -556,7 +772,7 @@ class Client
             // Use GET if the query is less than 2kB
             // 2046 = 2kB minus 1 for '?' and 1 for NULL-terminated string on server
             if (strlen($encodedQuery) + strlen($this->queryUri) <= 2046) {
-                $delimiter = $this->queryUri_has_params ? '&' : '?';
+                $delimiter = $this->queryUriHasParam ? '&' : '?';
 
                 $client->setMethod('GET');
                 $client->setUri($this->queryUri . $delimiter . $encodedQuery);
@@ -576,6 +792,7 @@ class Client
 
     /**
      * Parse HTTP-response object into a meaningful result-object.
+     * @see https://www.w3.org/TR/sparql11-protocol/#query-success
      *
      * Can be overridden to do custom processing
      *
@@ -584,13 +801,13 @@ class Client
      */
     protected function parseResponseToQuery($response)
     {
-        list($content_type,) = Utils::parseMimeType($response->getHeader('Content-Type'));
+        list($contentType,) = Utils::parseMimeType($response->getHeader('Content-Type'));
 
-        if (strpos($content_type, 'application/sparql-results') === 0) {
-            $result = new Result($response->getBody(), $content_type);
+        if (strpos($contentType, 'application/sparql-results') === 0) {
+            $result = new Result($response->getBody(), $contentType);
             return $result;
         } else {
-            $result = new Graph($this->queryUri, $response->getBody(), $content_type);
+            $result = new Graph($this->queryUri, $response->getBody(), $contentType);
             return $result;
         }
     }

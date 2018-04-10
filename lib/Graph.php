@@ -1360,7 +1360,7 @@ class Graph
      * @param  mixed $format  The format to serialise to
      * @param  array $options Serialiser-specific options, for fine-tuning the output
      *
-     * @return mixed  The serialised graph
+     * @return string The serialised graph
      */
     public function serialise($format, array $options = array())
     {
