@@ -51,6 +51,9 @@ use EasyRdf\ParsedUri;
  */
 class Client
 {
+    const METHOD_GET = 'GET';
+    const METHOD_POST = 'POST';
+
     /**
      * Configuration array, set using the constructor or using ::setConfig()
      *
@@ -81,7 +84,7 @@ class Client
      *
      * @var string
      */
-    private $method = 'GET';
+    private $method = self::METHOD_GET;
 
     /**
      * Associative array of GET parameters
@@ -360,7 +363,7 @@ class Client
         // Reset parameter data
         $this->paramsGet   = array();
         $this->rawPostData = null;
-        $this->method      = 'GET';
+        $this->method      = self::METHOD_GET;
 
         if ($clearAll) {
             $this->headers = array();
