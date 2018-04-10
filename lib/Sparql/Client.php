@@ -237,7 +237,8 @@ class Client
         return $graphs;
     }
 
-    /** Make an update request to the SPARQL endpoint
+    /**
+     * Make an update request to the SPARQL endpoint.
      *
      * Successful responses will return the HTTP response object
      *
@@ -253,7 +254,11 @@ class Client
     }
 
     /**
-     * Prepare update data, make the update and return HTTP response (@see update)
+     * Make an update INSERT DATA to the SPARQL endpoint.
+     * RDF Dataset : default-graph-uri using updateUri and/or specified GRAPH
+     *
+     * Successful responses will return the HTTP response object
+     * Unsuccessful responses will throw an exception
      *
      * @param string|Graph $data data to update. Can be either a string or a Graph
      * @param string|null $graphUri graph uri to use while updating data
@@ -277,7 +282,35 @@ class Client
     }
 
     /**
-     * Unused ?
+     * Make an update DELETE DATA to the SPARQL endpoint.
+     * RDF Dataset : default-graph-uri using updateUri and/or specified GRAPH
+     *
+     * Successful responses will return the HTTP response object
+     * Unsuccessful responses will throw an exception
+     *
+     * @param string|Graph $data data to update. Can be either a string or a Graph
+     * @param string|null $graphUri graph uri to use while updating data
+     *
+     * @return HttpResponse|\Zend\Http\Response
+     */
+    public function delete($data, $graphUri = null)
+    {
+        $query = 'DELETE DATA {';
+        if ($graphUri) {
+            $query .= 'GRAPH <' . $graphUri . '> {';
+        }
+        $query .= $this->formatRDFPayload($data);
+        if ($graphUri) {
+            $query .= '}';
+        }
+        $query .= '}';
+        $updatedQuery = $this->addRdfNamespace($query);
+
+        return $this->request($updatedQuery, true);
+    }
+
+    /**
+     * @deprecated
      *
      * @param string $operation
      * @param string|Graph $data data to update. Can be either a string or a Graph
@@ -287,13 +320,13 @@ class Client
      */
     protected function updateData($operation, $data, $graphUri = null)
     {
-        $query = "$operation DATA {";
+        $query = $operation . ' DATA {';
         if ($graphUri) {
-            $query .= "GRAPH <$graphUri> {";
+            $query .= 'GRAPH <' . $graphUri . '> {';
         }
         $query .= $this->formatRDFPayload($data);
         if ($graphUri) {
-            $query .= "}";
+            $query .= '}';
         }
         $query .= '}';
 
