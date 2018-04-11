@@ -67,6 +67,11 @@ class Client
     const SPARQL_POST_DIRECTLY = 'sparqlPostDirectly';
     const SPARQL_POST_URL_ENCODED = 'sparqlPostUrlEncoded';
 
+    const QUERY_PARAM_DEFAULT_GRAPH = 'default-graph-uri';
+    const QUERY_PARAM_NAMED_GRAPH = 'named-graph-uri';
+    const UPDATE_PARAM_USING_GRAPH = 'using-graph-uri';
+    const UPDATE_PARAM_USING_NAMED_GRAPH = 'using-named-graph-uri';
+
     /** @var string The query/read address of the SPARQL Endpoint */
     private $queryUri = null;
 
@@ -84,6 +89,12 @@ class Client
 
     /** @var Callable */
     private $sparqlUpdateProtocol;
+
+    /** @var array */
+    private $rdfDatasetParameterList;
+
+    /** @var bool */
+    private $hasProtocolRdfDataset = false;
 
     /** Create a new SPARQL endpoint client
      *
@@ -146,6 +157,53 @@ class Client
         $this->sparqlQueryProtocol = array($this, $protocol);
     }
 
+    /**
+     * Update the RDF Dataset the query is executed against, via query parameters.
+     * You SHOULD NOT specify differents RDF Dataset using both parameters and query operation keywords
+     *  - Query : default-graph-uri (equiv FROM keyword)
+     *  - Query : named-graph-uri (equiv FROM NAMED keyword)
+     *  - Update : using-graph-uri (equiv USING and WITH keywords)
+     *  - Update : using-named-graph-uri (equiv USING NAMED keyword)
+     *
+     * @see https://www.w3.org/TR/2013/REC-sparql11-protocol-20130321/#dataset
+     * @see https://www.w3.org/TR/2013/REC-sparql11-protocol-20130321/#update-dataset
+     *
+     * @param string $parameter
+     * @throws Exception Unknown RDF Dataset protocol parameter
+     */
+    public function addRdfDatasetParameter($parameter, $graphUri)
+    {
+        if (!in_array($parameter, array(
+            self::QUERY_PARAM_DEFAULT_GRAPH,
+            self::QUERY_PARAM_NAMED_GRAPH,
+            self::UPDATE_PARAM_USING_GRAPH,
+            self::UPDATE_PARAM_USING_NAMED_GRAPH,
+        ))) {
+            throw new Exception('Unknown RDF Dataset protocol parameter');
+        }
+        $this->rdfDatasetParameterList[] = $parameter . '=' . urlencode($graphUri);
+        $this->hasProtocolRdfDataset = true;
+    }
+
+    /**
+     * Get a ready to use RDF Dataset
+     *
+     * @return string
+     */
+    protected function getProtocolRdfDataset()
+    {
+        return implode('&', $this->rdfDatasetParameterList);
+    }
+
+    /**
+     * Clear the RDF Dataset
+     */
+    public function clearRdfDatasetParameterList()
+    {
+        $this->rdfDatasetParameterList = array();
+        $this->hasProtocolRdfDataset = false;
+    }
+
     /** Get the URI of the SPARQL query endpoint
      *
      * @return string The query URI of the SPARQL endpoint
@@ -187,7 +245,9 @@ class Client
      */
     public function query($query)
     {
-        return $this->request($query, false);
+        $updatedQuery = $this->addRdfNamespace($query);
+
+        return $this->request($updatedQuery, false);
     }
 
     /** Count the number of triples in a SPARQL 1.1 endpoint
@@ -238,7 +298,7 @@ class Client
     }
 
     /**
-     * Make an update request to the SPARQL endpoint.
+     * Make an update request to the SPARQL endpoint. Payload must be formatted
      *
      * Successful responses will return the HTTP response object
      *
@@ -250,7 +310,9 @@ class Client
      */
     public function update($query)
     {
-        return $this->request($query, true);
+        $updatedQuery = $this->addRdfNamespace($query);
+
+        return $this->request($updatedQuery, true);
     }
 
     /**
@@ -268,34 +330,6 @@ class Client
     public function insert($data, $graphUri = null)
     {
         $query = 'INSERT DATA {';
-        if ($graphUri) {
-            $query .= 'GRAPH <' . $graphUri . '> {';
-        }
-        $query .= $this->formatRDFPayload($data);
-        if ($graphUri) {
-            $query .= '}';
-        }
-        $query .= '}';
-        $updatedQuery = $this->addRdfNamespace($query);
-
-        return $this->request($updatedQuery, true);
-    }
-
-    /**
-     * Make an update DELETE DATA to the SPARQL endpoint.
-     * RDF Dataset : default-graph-uri using updateUri and/or specified GRAPH
-     *
-     * Successful responses will return the HTTP response object
-     * Unsuccessful responses will throw an exception
-     *
-     * @param string|Graph $data data to update. Can be either a string or a Graph
-     * @param string|null $graphUri graph uri to use while updating data
-     *
-     * @return HttpResponse|\Zend\Http\Response
-     */
-    public function delete($data, $graphUri = null)
-    {
-        $query = 'DELETE DATA {';
         if ($graphUri) {
             $query .= 'GRAPH <' . $graphUri . '> {';
         }
@@ -454,9 +488,13 @@ class Client
     protected function request($query, $isUpdate)
     {
         $uri = $isUpdate ? $this->updateUri : $this->queryUri;
+
         $callable = $isUpdate ? $this->sparqlUpdateProtocol : $this->sparqlQueryProtocol;
 
         $response = $this->executeQuery($query, $uri, $callable, $isUpdate);
+
+        // Reset RDF Dataset for next query
+        $this->clearRdfDatasetParameterList();
 
         if (!$response->isSuccessful()) {
             throw new HttpException(
@@ -548,17 +586,27 @@ class Client
     protected function sparqlGet($query, $uri, $client)
     {
         $encodedQuery = 'query=' . urlencode($query);
+        $delimiter = $this->queryUriHasParam ? '&' : '?';
+
+        if ($this->hasProtocolRdfDataset) {
+            $rdfDataset = $this->getProtocolRdfDataset();
+            $updatedUri = $uri . $delimiter . $rdfDataset . '&' . $encodedQuery;
+        } else {
+            $updatedUri = $uri . $delimiter . $encodedQuery;
+        }
 
         // 2046 = 2kB minus 1 for '?' and 1 for NULL-terminated string on server
-        if (strlen($encodedQuery) + strlen($uri) <= 2046) {
-            $delimiter = $this->queryUriHasParam ? '&' : '?';
+        if (strlen($encodedQuery) + strlen($updatedUri) <= 2046) {
 
             $client->setMethod(HttpClient::METHOD_GET);
-            $client->setUri($uri . $delimiter . $encodedQuery);
+            $client->setUri($updatedUri);
 
             return $client;
+        } elseif ($this->queryUriHasParam) {
+            // Fall back to POST Directly
+            return $this->sparqlPostDirectly($query, $uri, $client);
         } else {
-            // Fall back to POST instead (which is un-cacheable)
+            // Fall back to POST Url Encoded
             return $this->sparqlPostUrlEncoded($query, $uri, $client, false);
         }
     }
@@ -577,6 +625,12 @@ class Client
      */
     protected function sparqlPostDirectly($query, $uri, $client)
     {
+        if ($this->hasProtocolRdfDataset) {
+            $delimiter = $this->queryUriHasParam ? '&' : '?';
+            $rdfDataset = $this->getProtocolRdfDataset();
+            $uri .= $delimiter . $rdfDataset;
+        }
+
         $client->setMethod(HttpClient::METHOD_POST);
         $client->setUri($uri);
         $client->setRawData($query);
@@ -597,11 +651,20 @@ class Client
      * @param bool $isUpdate true is the query is an update
      *
      * @return HttpClient|\Zend\Http\Client $client
+     * @throws Exception Parameters must be within the request body
      */
     protected function sparqlPostUrlEncoded($query, $uri, $client, $isUpdate)
     {
+        if ($this->queryUriHasParam) {
+            throw new Exception('Parameters must be within the request body');
+        }
+
         $queryParam = $isUpdate ? 'update=' : 'query=';
         $encodedQuery = $queryParam . urlencode($query);
+
+        if ($this->hasProtocolRdfDataset) {
+            $encodedQuery .= '&' . $this->getProtocolRdfDataset();
+        }
 
         $client->setMethod(HttpClient::METHOD_POST);
         $client->setUri($uri);
