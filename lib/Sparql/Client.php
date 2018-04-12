@@ -96,6 +96,9 @@ class Client
     /** @var bool */
     private $hasProtocolRdfDataset = false;
 
+    /** @var bool force the use of query parameter even for update (not sparql 1.1 compliant) */
+    private $forceQueryParameter = false;
+
     /** Create a new SPARQL endpoint client
      *
      * If the query and update endpoints are the same, then you
@@ -132,12 +135,22 @@ class Client
     }
 
     /**
+     * Ensure backward compatibility for virtuoso 6 which is not Sparql 1.1 compliant
+     *
+     * @param bool $force true to force query= parameter when doing sparql Update queries
+     */
+    public function setForceQueryParameter($force = false)
+    {
+        $this->forceQueryParameter = $force;
+    }
+
+    /**
      * @param string $protocol Sparql protocol to use
      * @throws HttpException Invalid Sparql Query Protocol
      */
     public function setSparqlQueryProtocol($protocol)
     {
-        if (!in_array($protocol, array(self::SPARQL_GET, self::SPARQL_POST_DIRECTLY, self::SPARQL_POST_URL_ENCODED))) {
+        if (!\in_array($protocol, array(self::SPARQL_GET, self::SPARQL_POST_DIRECTLY, self::SPARQL_POST_URL_ENCODED))) {
             throw new Http\Exception('Invalid Sparql Query Protocol');
         }
 
@@ -150,7 +163,7 @@ class Client
      */
     public function setSparqlUpdateProtocol($protocol)
     {
-        if (!in_array($protocol, array(self::SPARQL_POST_DIRECTLY, self::SPARQL_POST_URL_ENCODED))) {
+        if (!\in_array($protocol, array(self::SPARQL_POST_DIRECTLY, self::SPARQL_POST_URL_ENCODED))) {
             throw new Http\Exception('Invalid Sparql Update Protocol');
         }
 
@@ -173,7 +186,7 @@ class Client
      */
     public function addRdfDatasetParameter($parameter, $graphUri)
     {
-        if (!in_array($parameter, array(
+        if (!\in_array($parameter, array(
             self::QUERY_PARAM_DEFAULT_GRAPH,
             self::QUERY_PARAM_NAMED_GRAPH,
             self::UPDATE_PARAM_USING_GRAPH,
@@ -537,7 +550,7 @@ class Client
         $client->setHeaders('Accept', $acceptHeader);
 
         if (is_callable($callable)) {
-            $client = call_user_func($callable, $query, $uri, $client, $isUpdate);
+            $client = \call_user_func($callable, $query, $uri, $client, $isUpdate);
         } else {
             throw new Exception('User function : ' . $callable . ' not valid.');
         }
@@ -659,7 +672,11 @@ class Client
             throw new Exception('Parameters must be within the request body');
         }
 
-        $queryParam = $isUpdate ? 'update=' : 'query=';
+        if ($this->forceQueryParameter || !$isUpdate) {
+            $queryParam = 'query=';
+        } else {
+            $queryParam = 'update=';
+        }
         $encodedQuery = $queryParam . urlencode($query);
 
         if ($this->hasProtocolRdfDataset) {
