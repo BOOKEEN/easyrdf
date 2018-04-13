@@ -319,7 +319,7 @@ class Client
      *
      * @param string $query The update query string to be executed
      *
-     * @return HttpResponse|\Zend\Http\Response HTTP response
+     * @return Graph|HttpResponse|Result
      */
     public function update($query)
     {

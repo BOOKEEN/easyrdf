@@ -15,9 +15,10 @@ class Client extends SparqlClient
     const INSERT_DATA = 'INSERT DATA';
     /** Sparql 1.1 DELETE DATA quadData */
     const DELETE_DATA = 'DELETE DATA';
-    /** Sparql 1.1 INSERT/DELETE quadData */
+    /** Sparql 1.1 INSERT/DELETE quadPattern */
     const INSERT = 'INSERT';
     const DELETE = 'DELETE';
+    const WITH = 'WITH';
 
     /** NOT Sparql 1.1 compliant */
     /** Virtuoso 6 */
@@ -38,6 +39,9 @@ class Client extends SparqlClient
     /** @var string Made for some backward compatibility  */
     private $deleteKeyword = self::DELETE_DATA;
 
+    /** @var string Made for some backward compatibility  */
+    private $deleteWhereKeyword = self::WITH;
+
     /**
      * @param string $sparqlEndpoint
      * @param string|null $usingGraphUri
@@ -50,6 +54,8 @@ class Client extends SparqlClient
             $this->usingGraphUri = $usingGraphUri;
         }
     }
+
+    // Todo : Query Builder ?
 
     /**
      * Specify a using graph uri for an update Operation.
@@ -103,10 +109,29 @@ class Client extends SparqlClient
      */
     public function setDeleteKeyword($keyword)
     {
-        if (\in_array($keyword, array(self::DELETE_DATA, self::DELETE_DATA_FROM, self::DELETE_FROM, self::DELETE,))) {
+        if (\in_array($keyword, array(self::DELETE_DATA, self::DELETE_DATA_FROM, self::DELETE_FROM, self::DELETE))) {
             $this->deleteKeyword = $keyword;
         } else {
             throw new Exception('Unknown delete keyword.');
+        }
+    }
+
+    /**
+     * Keyword used while doing a delete where quadPattern.
+     * Used for backward compatibility and issues for some triples store.
+     *
+     * Default value is sparql 1.1 compliant
+     *
+     * @param string $keyword
+     *
+     * @throws Exception Unknown delete where keyword
+     */
+    public function setDeleteWhereKeyword($keyword)
+    {
+        if (\in_array($keyword, array(self::DELETE_FROM, self::WITH))) {
+            $this->deleteWhereKeyword = $keyword;
+        } else {
+            throw new Exception('Unknown delete where keyword.');
         }
     }
 
@@ -195,6 +220,39 @@ class Client extends SparqlClient
 
         $query .= $this->formatRDFPayload($quadData);
         $query .= $graphUri ? '}}' : '}';
+
+        return $this->update($query);
+    }
+
+    /**
+     * The DELETE WHERE operation is a shortcut form for the DELETE/INSERT operation
+     * where bindings matched by the WHERE clause are used to define the triples in a graph that will be deleted.
+     *
+     * @see https://www.w3.org/TR/sparql11-update/#deleteWhere
+     *
+     * @param string $quadPattern RDF quadPattern Payload
+     * @param string $graphUri Specify a GRAPH to use against
+     *
+     * @return Graph|HttpResponse|Result
+     */
+    public function deleteWhere($quadPattern, $graphUri)
+    {
+        switch ($this->deleteWhereKeyword) {
+            case self::WITH:
+                if ($graphUri) {
+                    $query = self::WITH . ' <' . $graphUri . '> DELETE WHERE {' . $quadPattern . '}';
+                } else {
+                    $query = 'DELETE WHERE {' . $quadPattern . '}';
+                }
+                break;
+            case self::DELETE_FROM:
+                if ($graphUri) {
+                    $query = self::DELETE_FROM . ' <' . $graphUri . '> DELETE {' . $quadPattern . '} WHERE {' . $quadPattern . '}';
+                } else {
+                    $query = 'DELETE {' . $quadPattern . '} WHERE {' . $quadPattern . '}';
+                }
+                break;
+        }
 
         return $this->update($query);
     }
