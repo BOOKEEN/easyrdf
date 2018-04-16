@@ -169,6 +169,9 @@ class Client extends SparqlClient
                 break;
             case self::INSERT:
                 $query .= ' {';
+                if ($graphUri) {
+                    $this->addRdfDatasetParameter(self::UPDATE_PARAM_USING_GRAPH, $graphUri);
+                }
                 break;
             case self::INSERT_IN:
             case self::INSERT_INTO:
@@ -207,6 +210,9 @@ class Client extends SparqlClient
                 break;
             case self::DELETE:
                 $query .= ' {';
+                if ($graphUri) {
+                    $this->addRdfDatasetParameter(self::UPDATE_PARAM_USING_GRAPH, $graphUri);
+                }
                 break;
             case self::DELETE_FROM:
             case self::DELETE_DATA_FROM:
