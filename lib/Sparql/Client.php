@@ -194,6 +194,10 @@ class Client
         ))) {
             throw new Exception('Unknown RDF Dataset protocol parameter');
         }
+        // Backward compatibility with old triple store
+        if ($this->forceQueryParameter && $parameter === self::UPDATE_PARAM_USING_GRAPH) {
+            $parameter = self::QUERY_PARAM_DEFAULT_GRAPH;
+        }
         $this->rdfDatasetParameterList[] = $parameter . '=' . urlencode($graphUri);
         $this->hasProtocolRdfDataset = true;
     }
