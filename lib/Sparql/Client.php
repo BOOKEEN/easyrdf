@@ -167,7 +167,7 @@ class Client
             throw new Http\Exception('Invalid Sparql Update Protocol');
         }
 
-        $this->sparqlQueryProtocol = array($this, $protocol);
+        $this->sparqlUpdateProtocol = array($this, $protocol);
     }
 
     /**
@@ -342,11 +342,12 @@ class Client
      */
     public function insert($data, $graphUri = null)
     {
+        $ntripleList = $this->formatRDFPayload($data);
         $query = 'INSERT DATA {';
         if ($graphUri) {
             $query .= 'GRAPH <' . $graphUri . '> {';
         }
-        $query .= $this->formatRDFPayload($data);
+        $query .= $ntripleList;
         if ($graphUri) {
             $query .= '}';
         }
@@ -367,11 +368,13 @@ class Client
      */
     protected function updateData($operation, $data, $graphUri = null)
     {
+        $ntripleList = $this->formatRDFPayload($data);
+
         $query = $operation . ' DATA {';
         if ($graphUri) {
             $query .= 'GRAPH <' . $graphUri . '> {';
         }
-        $query .= $this->formatRDFPayload($data);
+        $query .= $ntripleList;
         if ($graphUri) {
             $query .= '}';
         }
@@ -549,7 +552,7 @@ class Client
         $acceptHeader = $this->getHttpAcceptHeader($queryForm);
         $client->setHeaders('Accept', $acceptHeader);
 
-        if (is_callable($callable)) {
+        if (\is_callable($callable)) {
             $client = \call_user_func($callable, $query, $uri, $client, $isUpdate);
         } else {
             throw new Exception('User function : ' . $callable . ' not valid.');

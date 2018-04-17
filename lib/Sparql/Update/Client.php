@@ -162,6 +162,7 @@ class Client extends SparqlClient
      */
     public function insertQuadData($quadData, $graphUri = null)
     {
+        $ntripleList = $this->formatRDFPayload($quadData);
         $query = $this->insertKeyword;
         switch ($this->insertKeyword) {
             case self::INSERT_DATA:
@@ -171,6 +172,8 @@ class Client extends SparqlClient
                 $query .= ' {';
                 if ($graphUri) {
                     $this->addRdfDatasetParameter(self::UPDATE_PARAM_USING_GRAPH, $graphUri);
+                    // reset graphUri so we don't add two closing brackets
+                    $graphUri = null;
                 }
                 break;
             case self::INSERT_IN:
@@ -184,7 +187,7 @@ class Client extends SparqlClient
                 break;
         }
 
-        $query .= $this->formatRDFPayload($quadData);
+        $query .= $ntripleList;
         $query .= $graphUri ? '}}' : '}';
 
         return $this->update($query);
@@ -203,6 +206,7 @@ class Client extends SparqlClient
      */
     public function deleteQuadData($quadData, $graphUri = null)
     {
+        $ntripleList = $this->formatRDFPayload($quadData);
         $query = $this->deleteKeyword;
         switch ($this->deleteKeyword) {
             case self::DELETE_DATA:
@@ -212,6 +216,8 @@ class Client extends SparqlClient
                 $query .= ' {';
                 if ($graphUri) {
                     $this->addRdfDatasetParameter(self::UPDATE_PARAM_USING_GRAPH, $graphUri);
+                    // reset graphUri so we don't add two closing brackets
+                    $graphUri = null;
                 }
                 break;
             case self::DELETE_FROM:
@@ -224,7 +230,7 @@ class Client extends SparqlClient
                 break;
         }
 
-        $query .= $this->formatRDFPayload($quadData);
+        $query .= $ntripleList;
         $query .= $graphUri ? '}}' : '}';
 
         return $this->update($query);
