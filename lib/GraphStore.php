@@ -76,7 +76,7 @@ class GraphStore
      */
     public function forceGraphUriParameter($force = false)
     {
-        $this->forceGraphUriParameter($force);
+        $this->forceGraphUriParameter = $force;
     }
 
     /** Get the URI of the graph store
