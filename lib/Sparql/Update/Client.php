@@ -259,7 +259,7 @@ class Client extends SparqlClient
                 break;
             case self::DELETE_FROM:
                 if ($graphUri) {
-                    $query = self::DELETE_FROM . ' <' . $graphUri . '> DELETE {' . $quadPattern . '} WHERE {' . $quadPattern . '}';
+                    $query = self::DELETE_FROM . ' <' . $graphUri . '> {' . $quadPattern . '} WHERE {' . $quadPattern . '}';
                 } else {
                     $query = 'DELETE {' . $quadPattern . '} WHERE {' . $quadPattern . '}';
                 }
