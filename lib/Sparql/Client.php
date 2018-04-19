@@ -616,7 +616,7 @@ class Client
         }
 
         // 2046 = 2kB minus 1 for '?' and 1 for NULL-terminated string on server
-        if (strlen($encodedQuery) + strlen($updatedUri) <= 2046) {
+        if (strlen($updatedUri) <= 2046) {
 
             $client->setMethod(HttpClient::METHOD_GET);
             $client->setUri($updatedUri);
