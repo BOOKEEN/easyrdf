@@ -437,6 +437,16 @@ class Client
         return $this->request($query, true);
     }
 
+    /**
+     * The LOAD operation reads an RDF document from a IRI and inserts its triples into the specified graph in the Graph Store.
+     * @see https://www.w3.org/TR/sparql11-update/#load
+     *
+     * @param string $graphUriFrom IRIref | DEFAULT
+     * @param string $graphUriTo IRIref | DEFAULT
+     * @param bool $silent the result of the operation will always be success
+     *
+     * @return HttpResponse|\Zend\Http\Response
+     */
     public function load($graphUriFrom, $graphUriTo, $silent = false)
     {
         $query = $this->graphManagement(Graph::UPDATE_LOAD, $silent, $graphUriFrom, $graphUriTo);
