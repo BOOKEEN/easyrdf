@@ -44,6 +44,7 @@ use EasyRdf\Http\Exception as HttpException;
 use EasyRdf\Http\Response as HttpResponse;
 use EasyRdf\RdfNamespace;
 use EasyRdf\Resource;
+use EasyRdf\Sparql\Response\JsonLD;
 use EasyRdf\Utils;
 
 /**
@@ -595,6 +596,10 @@ class Client
         if (strpos($contentType, 'application/sparql-results') === 0) {
             $result = new Result($response->getBody(), $contentType);
             return $result;
+        } elseif ($contentType === 'application/ld+json') {
+            // json-ld can only be used with describe or construct with virtuoso 6 & 7
+            $result = new JsonLD($response);
+
         } else {
             $result = new Graph($this->queryUri, $response->getBody(), $contentType);
             return $result;
@@ -737,6 +742,9 @@ class Client
                 return Format::formatAcceptHeader($this->sparqlResultsTypes);
                 break;
             case self::QUERY_FORM_CONSTRUCT:
+
+                return Format::formatAcceptHeader(array('application/ld+json' => 1.0));
+                break;
             case self::QUERY_FORM_DESCRIBE:
 
                 return Format::getHttpAcceptHeader();
