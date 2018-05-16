@@ -45,6 +45,23 @@ namespace EasyRdf;
  */
 class Graph
 {
+
+    /** Graph Keywords @see https://www.w3.org/TR/sparql11-update/#documentConventions */
+    const KEYWORD_DEFAULT = 'DEFAULT';
+    const KEYWORD_NAMED = 'NAMED';
+    const KEYWORD_ALL = 'ALL';
+
+    /** Graph Operations @see https://www.w3.org/TR/sparql11-update/#graphManagement */
+    const OPERATION_CREATE = 'CREATE';
+    const OPERATION_DROP = 'DROP';
+    const OPERATION_COPY = 'COPY';
+    const OPERATION_MOVE = 'MOVE';
+    const OPERATION_ADD = 'ADD';
+
+    /** Graph Updates @see https://www.w3.org/TR/sparql11-update/#graphUpdate */
+    const UPDATE_CLEAR = 'CLEAR';
+    const UPDATE_LOAD = 'LOAD';
+
     /** The URI of the graph */
     private $uri = null;
     private $parsedUri = null;
@@ -1343,7 +1360,7 @@ class Graph
      * @param  mixed $format  The format to serialise to
      * @param  array $options Serialiser-specific options, for fine-tuning the output
      *
-     * @return mixed  The serialised graph
+     * @return string The serialised graph
      */
     public function serialise($format, array $options = array())
     {

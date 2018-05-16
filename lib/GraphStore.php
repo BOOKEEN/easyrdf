@@ -55,6 +55,9 @@ class GraphStore
     private $uri = null;
     private $parsedUri = null;
 
+    /** @var bool Backward compatibility issue. Force the use of graph-uri parameter (not sparql 1.1 compliant) */
+    private $forceGraphUriParameter = false;
+
 
     /** Create a new SPARQL Graph Store client
      *
@@ -64,6 +67,16 @@ class GraphStore
     {
         $this->uri = $uri;
         $this->parsedUri = new ParsedUri($uri);
+    }
+
+    /**
+     * Ensure backward compatibility for virtuoso 6 which is not Sparql 1.1 compliant
+     *
+     * @param bool $force true to force graph-uri= parameter when doing sparql GraphStore operations
+     */
+    public function forceGraphUriParameter($force = false)
+    {
+        $this->forceGraphUriParameter = $force;
     }
 
     /** Get the URI of the graph store
@@ -293,9 +306,14 @@ class GraphStore
     protected function urlForGraph($url)
     {
         if ($url === self::DEFAULT_GRAPH) {
-            $url = $this->uri.'?default';
+            $url = $this->uri . '?default';
         } elseif (strpos($url, $this->uri) === false) {
-            $url = $this->uri."?graph=".urlencode($url);
+            if ($this->forceGraphUriParameter) {
+                $param = 'graph-uri';
+            } else {
+                $param = 'graph';
+            }
+            $url = $this->uri . '?' . $param . '=' .urlencode($url);
         }
 
         return $url;
