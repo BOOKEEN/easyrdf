@@ -44,7 +44,6 @@ use EasyRdf\Http\Exception as HttpException;
 use EasyRdf\Http\Response as HttpResponse;
 use EasyRdf\RdfNamespace;
 use EasyRdf\Resource;
-use EasyRdf\Sparql\Response\Construct;
 use EasyRdf\Sparql\Response\JsonLd;
 use EasyRdf\Utils;
 
