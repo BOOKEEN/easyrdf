@@ -608,7 +608,7 @@ class Client
      * Can be overridden to do custom processing
      *
      * @param HttpResponse|\Zend\Http\Response $response
-     * @return Graph|Result|JsonLd
+     * @return Graph|Result|\stdClass
      * @throws Exception Unable to parse Response
      */
     protected function parseResponseToQuery($response)
@@ -619,9 +619,10 @@ class Client
 
             return new Result($response->getBody(), $contentType);
         } elseif (isset($this->queryForm)) {
-            if ($contentType === 'application/json+ld' && $this->queryForm === self::QUERY_FORM_CONSTRUCT) {
+            if ($contentType === 'application/ld+json' && $this->queryForm === self::QUERY_FORM_CONSTRUCT) {
+                $res = new JsonLd($response);
 
-                return new JsonLd($response);
+                return $res->getJsonLd();
             } else {
 
                 return new Graph($this->queryUri, $response->getBody(), $contentType);

@@ -8,13 +8,24 @@ class JsonLd
 {
 
     /**
+     * @var \stdClass
+     */
+    private $jsonLd;
+
+    /**
      * @param Response $response
-     *
-     * @return \stdClass
      */
     public function __construct(Response $response)
     {
-        return $this->normalizeJsonLd($response);
+        $this->jsonLd = $this->normalizeJsonLd($response);
+    }
+
+    /**
+     * @return \stdClass
+     */
+    public function getJsonLd()
+    {
+        return $this->jsonLd;
     }
 
     /**
@@ -23,7 +34,7 @@ class JsonLd
      *
      * @param Response $response
      *
-     * @return \stdClass|null
+     * @return \stdClass
      */
     protected function normalizeJsonLd(Response $response)
     {
@@ -32,12 +43,12 @@ class JsonLd
 
         if (empty($bodyContent)) {
 
-            return;
+            return new \stdClass();
         }
 
         if (isset($bodyContent['@graph'])) {
 
-            return $bodyContent;
+            return json_decode($responseBody);
         } elseif (isset($bodyContent['@'])) {
             $jsonLd = new \stdClass();
             $jsonLd->{'@graph'} = array();
@@ -58,7 +69,7 @@ class JsonLd
             return $jsonLd;
         } else {
 
-            return;
+            return new \stdClass();
         }
     }
 
