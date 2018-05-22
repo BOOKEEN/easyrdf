@@ -2,6 +2,7 @@
 
 namespace EasyRdf\Sparql\Query;
 
+use EasyRdf\Format;
 use EasyRdf\Sparql\Client as sparqlClient;
 
 class Client extends sparqlClient

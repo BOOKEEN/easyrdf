@@ -44,6 +44,7 @@ use EasyRdf\Http\Exception as HttpException;
 use EasyRdf\Http\Response as HttpResponse;
 use EasyRdf\RdfNamespace;
 use EasyRdf\Resource;
+use EasyRdf\Sparql\Response\JsonLd;
 use EasyRdf\Utils;
 
 /**
@@ -98,6 +99,12 @@ class Client
 
     /** @var bool force the use of query parameter even for update (not sparql 1.1 compliant) */
     private $forceQueryParameter = false;
+
+    /** @var string query form */
+    protected $queryForm;
+
+    /** @var string Manual definition of acceptHttpHeader (override default settings) */
+    protected $currentAcceptHeader;
 
     /** Create a new SPARQL endpoint client
      *
@@ -171,6 +178,19 @@ class Client
     }
 
     /**
+     * Set http Accept header for the current query
+     * When unset, default values are used
+     *
+     * @see https://www.w3.org/TR/2013/REC-sparql11-protocol-20130321/#conneg
+     *
+     * @param array $mimeType Array mimeType => weight
+     */
+    public function setCurrentAcceptHeader(array $mimeType)
+    {
+        $this->currentAcceptHeader = Format::formatAcceptHeader($mimeType);
+    }
+
+    /**
      * Update the RDF Dataset the query is executed against, via query parameters.
      * You SHOULD NOT specify differents RDF Dataset using both parameters and query operation keywords
      *  - Query : default-graph-uri (equiv FROM keyword)
@@ -213,12 +233,13 @@ class Client
     }
 
     /**
-     * Clear the RDF Dataset
+     * Clear the RDF Dataset and accept http headers
      */
-    public function clearRdfDatasetParameterList()
+    public function clearRequestParameterList()
     {
         $this->rdfDatasetParameterList = array();
         $this->hasProtocolRdfDataset = false;
+        $this->currentAcceptHeader = null;
     }
 
     /** Get the URI of the SPARQL query endpoint
@@ -523,8 +544,8 @@ class Client
 
         $response = $this->executeQuery($query, $uri, $callable, $isUpdate);
 
-        // Reset RDF Dataset for next query
-        $this->clearRdfDatasetParameterList();
+        // Reset parameters for next query
+        $this->clearRequestParameterList();
 
         if (!$response->isSuccessful()) {
             throw new HttpException(
@@ -586,18 +607,27 @@ class Client
      * Can be overridden to do custom processing
      *
      * @param HttpResponse|\Zend\Http\Response $response
-     * @return Graph|Result
+     * @return Graph|Result|\stdClass
+     * @throws Exception Unable to parse Response
      */
     protected function parseResponseToQuery($response)
     {
         list($contentType,) = Utils::parseMimeType($response->getHeader('Content-Type'));
 
         if (strpos($contentType, 'application/sparql-results') === 0) {
-            $result = new Result($response->getBody(), $contentType);
-            return $result;
+
+            return new Result($response->getBody(), $contentType);
+        } elseif (isset($this->queryForm)) {
+            if ($contentType === 'application/ld+json' && $this->queryForm === self::QUERY_FORM_CONSTRUCT) {
+                $res = new JsonLd($response);
+
+                return $res->getJsonLd();
+            } else {
+
+                return new Graph($this->queryUri, $response->getBody(), $contentType);
+            }
         } else {
-            $result = new Graph($this->queryUri, $response->getBody(), $contentType);
-            return $result;
+            throw new Exception('Unable to parse Response');
         }
     }
 
@@ -725,6 +755,10 @@ class Client
      */
     protected function getHttpAcceptHeader($queryForm = null)
     {
+        if ($this->currentAcceptHeader) {
+
+            return $this->currentAcceptHeader;
+        }
         if (!$queryForm) {
 
             return Format::getHttpAcceptHeader($this->sparqlResultsTypes);
@@ -766,11 +800,12 @@ class Client
 
         if (false === $matched || count($result) !== 2) {
             // non-standard query. is this something non-standard?
-            return self::QUERY_FORM_UNKNOWN;
+            $this->queryForm = self::QUERY_FORM_UNKNOWN;
         } else {
-
-            return strtoupper($result[1]);
+            $this->queryForm = strtoupper($result[1]);
         }
+
+        return $this->queryForm;
     }
 
     /**
