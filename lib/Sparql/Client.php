@@ -761,7 +761,7 @@ class Client
         }
         if (!$queryForm) {
 
-            return Format::getHttpAcceptHeader($this->sparqlResultsTypes);
+            return Format::formatAcceptHeader($this->sparqlResultsTypes);
         }
 
         switch ($queryForm) {
