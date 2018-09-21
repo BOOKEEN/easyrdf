@@ -232,10 +232,7 @@ class Literal
             }
         }
 
-        if (!is_float($this->value)) {
-            // Cast value to string
-            settype($this->value, 'string');
-        }
+        settype($this->value, 'string');
     }
 
     /** Returns the value of the literal.
