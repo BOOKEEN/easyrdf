@@ -232,13 +232,7 @@ class Literal
             }
         }
 
-        if (is_float($this->value)) {
-            // special handling of floats, as they suffer from locale [mis]configuration
-            $this->value = rtrim(sprintf('%F', $this->value), '0');
-        } else {
-            // Cast value to string
-            settype($this->value, 'string');
-        }
+        settype($this->value, 'string');
     }
 
     /** Returns the value of the literal.
